@@ -258,6 +258,29 @@
             alert('ভুল ইউজারনেম বা পাসওয়ার্ড!');
         }
     }
-    </script>
+        
+    // আপনার তৈরি করা pdf blob
+const pdfBlob = ...; // আপনার পিডিএফ জেনারেটরের কোড
+
+const file = new File([pdfBlob], "Club_Report.pdf", { type: "application/pdf" });
+
+if (navigator.canShare && navigator.canShare({ files: [file] })) {
+  navigator.share({
+    files: [file],
+    title: 'Report',
+    text: 'Please find the attached report.'
+  })
+  .then(() => console.log('Share was successful.'))
+  .catch((error) => console.log('Sharing failed', error));
+} else {
+  // যদি শেয়ার সাপোর্ট না করে, তবে সাধারণ ডাউনলোড লিঙ্ক
+  const url = URL.createObjectURL(pdfBlob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = "Club_Report.pdf";
+  a.click();
+}
+
+    </scrtpt>
 </body>
 </html>
