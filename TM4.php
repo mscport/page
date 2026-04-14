@@ -224,6 +224,31 @@
                         <button onclick="autoGenerateMatches()" class="bg-indigo-600 text-white px-4 py-1.5 rounded text-sm font-bold hover:bg-indigo-700"><i class="ph ph-magic-wand"></i> Auto Pair</button>
                     </div>
                 </div>
+                
+                <div class="bg-indigo-50 p-4 rounded-xl border border-indigo-100 mb-6">
+                    <h3 class="font-bold text-indigo-900 mb-3 text-sm uppercase flex items-center gap-2"><i class="ph ph-plus-circle"></i> Create Match Manually</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                        <div class="input-group">
+                            <label class="text-xs">Team 1 (প্রথম দল)</label>
+                            <select id="manual-match-t1" class="input-field py-2"></select>
+                        </div>
+                        <div class="input-group">
+                            <label class="text-xs">Team 2 (দ্বিতীয় দল)</label>
+                            <select id="manual-match-t2" class="input-field py-2"></select>
+                        </div>
+                        <div class="input-group">
+                            <label class="text-xs">Match Stage</label>
+                            <select id="manual-match-stage" class="input-field py-2">
+                                <option value="League">League Match</option>
+                                <option value="Quarter Final">Quarter Final</option>
+                                <option value="Semi Final">Semi Final</option>
+                                <option value="Final">Final</option>
+                            </select>
+                        </div>
+                        <button onclick="createManualMatch()" class="bg-indigo-600 text-white font-bold py-2 rounded-lg shadow hover:bg-indigo-700 transition">Create Match</button>
+                    </div>
+                </div>
+                
                 <div id="admin-matches-list" class="space-y-4"></div>
             </div>
         </section>
@@ -485,6 +510,15 @@
                         <button type="submit" class="flex-1 bg-indigo-600 text-white py-3 rounded-lg font-bold shadow hover:bg-indigo-700">Save Match</button>
                     </div>
                 </form>
+                <div class="mt-8 pt-4 border-t-2 border-gray-800 border-dashed text-left">
+                <h4 class="font-bold text-lg mb-2 uppercase">টুর্নামেন্টের নিয়মাবলি (Match Rules):</h4>
+                <ul class="list-disc pl-5 text-sm space-y-1 text-gray-700 font-semibold">
+                    <li>ম্যাচ শুরু হওয়ার অন্তত ৩০ মিনিট আগে মাঠে রিপোর্ট করতে হবে।</li>
+                    <li>আম্পায়ারের সিদ্ধান্তই চূড়ান্ত বলে গণ্য হবে, কোনো তর্কে জড়ানো যাবে না।</li>
+                    <li>নির্ধারিত ওভারের মধ্যে খেলা শেষ করতে হবে, স্লো ওভার রেটের জন্য পেনাল্টি থাকবে।</li>
+                    <li>কমিটি যেকোনো সময় নিয়মাবলি পরিবর্তন বা পরিমার্জন করার অধিকার রাখে।</li>
+                </ul>
+            </div>
             </div>
         </div>
     </div>
@@ -702,6 +736,7 @@
                 State.teams = [];
                 if(snapshot.exists()) { snapshot.forEach(c => { State.teams.push({ id: c.key, ...c.val() }); }); }
                 renderTeamsTable();
+                populateManualMatchSelects();
             });
             
             onValue(ref(db, 'matches'), (snapshot) => {
@@ -751,42 +786,81 @@
         window.addPlayer = (mode) => { if (State.formPlayers.length < State.settings.playersLimit) { State.formPlayers.push(''); renderPlayersForm(mode); } else showToast(`Admin Limit: Max ${State.settings.playersLimit} players.`, true); };
 
         // TEAM REGISTRATION
-        window.handleFormSubmit = async function(e) {
-            e.preventDefault();
-            if(State.teams.length >= State.settings.teamLimit) return showToast("Registration Closed. Total Teams Limit reached.", true);
-            
-            const btn = document.getElementById('submitRegBtn'); btn.innerHTML = "Processing..."; btn.disabled = true;
+   window.handleFormSubmit = async function(e) {
+    e.preventDefault();
+    if(State.teams.length >= State.settings.teamLimit) return showToast("Registration Closed. Total Teams Limit reached.", true);
+    
+    const btn = document.getElementById('submitRegBtn'); 
+    btn.innerHTML = "Processing..."; btn.disabled = true;
 
-            const regNumber = 'T' + Math.floor(1000 + Math.random() * 9000);
-            
-            const fullAddress = `${document.getElementById('reg-village').value}, ${document.getElementById('reg-road').value}, PO: ${document.getElementById('reg-po').value}, PS: ${document.getElementById('reg-ps').value}, ${document.getElementById('reg-dist').value} - ${document.getElementById('reg-pin').value}`;
+    const regNumber = 'T' + Math.floor(1000 + Math.random() * 9000);
+    const fullAddress = `${document.getElementById('reg-village').value}, ${document.getElementById('reg-road').value}, PO: ${document.getElementById('reg-po').value}, PS: ${document.getElementById('reg-ps').value}, ${document.getElementById('reg-dist').value} - ${document.getElementById('reg-pin').value}`;
+    
+    const feeAmount = parseInt(State.settings.entryFee) || 0;
 
-            State.pendingRegistration = {
-                regNo: regNumber, name: document.getElementById('reg-teamName').value.toUpperCase(), head: document.getElementById('reg-teamHead').value,
-                phone: document.getElementById('reg-phone').value, address: fullAddress,
-                players: [...State.formPlayers], status: 'Payment Pending', timestamp: Date.now()
-            };
+    State.pendingRegistration = {
+        regNo: regNumber, name: document.getElementById('reg-teamName').value.toUpperCase(), head: document.getElementById('reg-teamHead').value,
+        phone: document.getElementById('reg-phone').value, address: fullAddress,
+        players: [...State.formPlayers], 
+        status: feeAmount === 0 ? 'Approved' : 'Payment Pending', // Fee ০ হলে সরাসরি Approved
+        timestamp: Date.now()
+    };
 
-            await safeFirebaseCall(set(ref(db, `teams/${regNumber}`), State.pendingRegistration));
-            
-            document.getElementById('pay-reg-no').innerText = regNumber; document.getElementById('pay-amount').innerText = State.settings.entryFee;
-            document.getElementById('pub-tab-entry').classList.add('hidden'); document.getElementById('payment-redirect-view').classList.remove('hidden');
+    await safeFirebaseCall(set(ref(db, `teams/${regNumber}`), State.pendingRegistration));
+    
+    if(feeAmount === 0) {
+        // --- Free Entry Logic (পেমেন্ট স্কিপ করে সরাসরি রসিদ) ---
+        document.getElementById('r-fee-container').style.display = 'none'; // Payment Status লুকানো
+        document.getElementById('r-qr-container').style.display = 'block';
 
-            const upiLink = `upi://pay?pa=${State.settings.upiId}&pn=Modern%20Sporting%20Club&am=${State.settings.entryFee}&cu=INR&tn=Reg_${regNumber}`;
-            const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(upiLink)}`;
-            
-            document.getElementById('upi-init-box').innerHTML = `
-                <a href="${upiLink}" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl shadow-lg flex justify-center items-center gap-2 transition mb-3 animate-pulse text-center" onclick="document.getElementById('upi-verify-box').classList.remove('hidden')"><i class="ph ph-device-mobile"></i> Open UPI App to Pay</a>
-                <div class="mt-4 border-t pt-4">
-                    <p class="text-xs text-gray-500 mb-2 font-bold uppercase text-center">If App doesn't open, scan this QR code:</p>
-                    <img src="${qrUrl}" class="mx-auto border p-2 rounded-lg bg-white shadow-sm" alt="UPI QR">
-                    <button onclick="document.getElementById('upi-verify-box').classList.remove('hidden')" class="text-xs text-indigo-600 font-bold mt-2 underline w-full text-center">I have paid using QR</button>
-                </div>
-            `;
+        document.getElementById('r-regNo').innerText = regNumber; 
+        document.getElementById('r-date').innerText = new Date().toLocaleDateString();
+        document.getElementById('r-teamName').innerText = State.pendingRegistration.name; 
+        document.getElementById('r-teamHead').innerText = State.pendingRegistration.head;
+        document.getElementById('r-phone').innerText = State.pendingRegistration.phone; 
+        document.getElementById('r-address').innerText = State.pendingRegistration.address;
+        
+        const rp = document.getElementById('r-playersList'); rp.innerHTML = '';
+        State.pendingRegistration.players.forEach((p, i) => rp.innerHTML += `<div><span class="text-gray-500 text-xs">${i+1}.</span> ${p}</div>`);
+        document.getElementById('r-qrCode').src = `https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=REG:${regNumber}`;
+        document.getElementById('r-tdate').innerText = new Date(State.settings.date).toLocaleString();
+        
+        // UI পরিবর্তন করা
+        document.getElementById('pub-tab-entry').classList.add('hidden');
+        document.getElementById('main-header').classList.add('hidden');
+        document.getElementById('receipt-view').style.display = 'block';
+        
+        // ফর্ম রিসেট করা
+        document.getElementById('registrationForm').reset(); 
+        State.formPlayers = Array(7).fill(''); renderPlayersForm('reg'); 
+        State.pendingRegistration = null;
+        
+        showToast("Registration Successful! Downloading Receipt...");
+        
+        // সরাসরি প্রিন্ট বা ডাউনলোড ডায়ালগ ওপেন করা
+        setTimeout(() => { window.print(); }, 1000);
 
-            btn.innerHTML = `<span>Save & Proceed to Pay ₹${State.settings.entryFee}</span><i class="ph ph-arrow-right"></i>`; btn.disabled = false;
-        };
+        btn.innerHTML = `<span>Save & Register (Free)</span><i class="ph ph-arrow-right"></i>`;
+    } else {
+        // --- Paid Entry Logic (পুরোনো UPI পেমেন্ট রিডাইরেক্ট) ---
+        document.getElementById('pay-reg-no').innerText = regNumber; document.getElementById('pay-amount').innerText = feeAmount;
+        document.getElementById('pub-tab-entry').classList.add('hidden'); document.getElementById('payment-redirect-view').classList.remove('hidden');
 
+        const upiLink = `upi://pay?pa=${State.settings.upiId}&pn=Modern%20Sporting%20Club&am=${feeAmount}&cu=INR&tn=Reg_${regNumber}`;
+        const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(upiLink)}`;
+        
+        document.getElementById('upi-init-box').innerHTML = `
+            <a href="${upiLink}" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl shadow-lg flex justify-center items-center gap-2 transition mb-3 animate-pulse text-center" onclick="document.getElementById('upi-verify-box').classList.remove('hidden')"><i class="ph ph-device-mobile"></i> Open UPI App to Pay</a>
+            <div class="mt-4 border-t pt-4">
+                <p class="text-xs text-gray-500 mb-2 font-bold uppercase text-center">If App doesn't open, scan this QR code:</p>
+                <img src="${qrUrl}" class="mx-auto border p-2 rounded-lg bg-white shadow-sm" alt="UPI QR">
+                <button onclick="document.getElementById('upi-verify-box').classList.remove('hidden')" class="text-xs text-indigo-600 font-bold mt-2 underline w-full text-center">I have paid using QR</button>
+            </div>
+        `;
+        btn.innerHTML = `<span>Save & Proceed to Pay ₹${feeAmount}</span><i class="ph ph-arrow-right"></i>`;
+    }
+    btn.disabled = false;
+};
         window.verifyPayment = async function() {
             const btn = document.getElementById('verify-btn'); btn.innerHTML = '<i class="ph ph-spinner animate-spin"></i> Verifying...'; btn.disabled = true;
             setTimeout(async () => {
@@ -1580,7 +1654,46 @@
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-gray-700 pt-4 mt-4"><div class="bg-white/5 p-3 rounded"><div class="text-xs text-gray-400 mb-2 uppercase font-bold tracking-widest">Batting</div><div class="font-bold flex justify-between text-sm mb-1 ${lm.striker.name ? 'text-white' : 'text-gray-600'}"><span>${lm.striker.name || 'Striker'} *</span> <span>${lm.striker.runs}(${lm.striker.balls})</span></div><div class="font-bold flex justify-between text-sm ${lm.runner.name ? 'text-gray-300' : 'text-gray-600'}"><span>${lm.runner.name || 'Runner'}</span> <span>${lm.runner.runs}(${lm.runner.balls})</span></div></div><div class="bg-white/5 p-3 rounded flex flex-col justify-center"><div class="text-xs text-gray-400 mb-2 uppercase font-bold tracking-widest">This Over</div><div class="flex gap-1 flex-wrap text-sm">${lm.currentOver.length > 0 ? lm.currentOver.join('') : '<span class="text-gray-600">.</span>'}</div></div></div>
                 </div>`;
         }
+// ড্রপডাউনে শুধু Approved টিমগুলো লোড করার ফাংশন
+function populateManualMatchSelects() {
+    const t1 = document.getElementById('manual-match-t1');
+    const t2 = document.getElementById('manual-match-t2');
+    if(!t1 || !t2) return;
+    
+    t1.innerHTML = '<option value="">Select Team 1...</option>';
+    t2.innerHTML = '<option value="">Select Team 2...</option>';
+    
+    // শুধুমাত্র যারা পেমেন্ট করে Approved হয়েছে বা Free-তে Approved হয়েছে
+    const approvedTeams = State.teams.filter(t => t.status === 'Approved' || t.status.includes('Paid'));
+    
+    approvedTeams.forEach(t => {
+        const opt = `<option value="${t.id}">${t.name}</option>`;
+        t1.innerHTML += opt;
+        t2.innerHTML += opt;
+    });
+}
 
+// ম্যানুয়াল ম্যাচ তৈরি করার কোর ফাংশন
+window.createManualMatch = async function() {
+    const t1Id = document.getElementById('manual-match-t1').value;
+    const t2Id = document.getElementById('manual-match-t2').value;
+    const stage = document.getElementById('manual-match-stage').value;
+
+    if(!t1Id || !t2Id) return showToast("দয়া করে দুটি দল নির্বাচন করুন", true);
+    if(t1Id === t2Id) return showToast("দুটি দল একই হতে পারে না!", true);
+
+    const team1 = State.teams.find(t => t.id === t1Id);
+    const team2 = State.teams.find(t => t.id === t2Id);
+
+    const mId = 'M' + Date.now();
+    await safeFirebaseCall(set(ref(db, `matches/${mId}`), { 
+        id: mId, team1: team1, team2: team2, stage: stage, status: 'Scheduled', time: State.settings.date 
+    }));
+
+    showToast("ম্যানুয়াল ম্যাচ সফলভাবে তৈরি হয়েছে!");
+    document.getElementById('manual-match-t1').value = '';
+    document.getElementById('manual-match-t2').value = '';
+};
         // TABS & APP NAVIGATION
         window.switchTab = function(mode, tabId) {
             document.querySelectorAll(`.${mode === 'public' ? 'pub' : 'adm'}-tab-btn`).forEach(b => { 
